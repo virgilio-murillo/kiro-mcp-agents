@@ -1,9 +1,7 @@
 """Kiro Agents MCP server — orchestrates parallel kiro-cli investigations."""
 
-import asyncio
 import json
 import os
-import re
 import signal
 import subprocess
 import threading
@@ -30,7 +28,7 @@ VALIDATOR_TIMEOUT = 300  # 5 minutes max per validator
 NODE_INSTRUCTION = (
     "\n\nPROGRESS TRACKING: As you work, append a short progress line (max 3 words) to {nodes_path} "
     "using this exact format: HH:MM:SS|Three Word Summary\n"
-    "Example: echo \"$(date +%H:%M:%S)|Searching AWS docs\" >> {nodes_path}\n"
+    'Example: echo "$(date +%H:%M:%S)|Searching AWS docs" >> {nodes_path}\n'
     "Add a node each time you start a meaningfully different step. Do NOT add more than one every 30 seconds."
 )
 
@@ -87,7 +85,7 @@ ORCHESTRATOR_TASK = (
     "the same investigation in the future. Use a concise topic, clear problem statement, "
     "and actionable resolution."
     "\n\nPROGRESS TRACKING: As you work, append a short progress line (max 3 words) to {nodes_path} "
-    "using: echo \"$(date +%H:%M:%S)|Three Word Summary\" >> {nodes_path}\n"
+    'using: echo "$(date +%H:%M:%S)|Three Word Summary" >> {nodes_path}\n'
     "Add a node each time you start a meaningfully different step."
 )
 
@@ -101,7 +99,7 @@ VISUAL_REPORT_TASK = (
     "- Summary tables\n\n"
     "Write the visual report to: {visual_report_path}"
     "\n\nPROGRESS TRACKING: Append progress lines to {nodes_path} "
-    "using: echo \"$(date +%H:%M:%S)|Three Word Summary\" >> {nodes_path}\n"
+    'using: echo "$(date +%H:%M:%S)|Three Word Summary" >> {nodes_path}\n'
 )
 
 CORRESPONDENCE_STYLE = """
@@ -134,15 +132,19 @@ When something is outside AWS support scope, note it diplomatically but still pr
 
 # ── Helpers ────────────────────────────────────────────────────────
 
-def _spawn_kiro(agent: str, task: str, work_dir: str, log_path: str, model: str = None) -> subprocess.Popen:
-    log_file = open(log_path, "w")
+
+def _spawn_kiro(agent: str, task: str, work_dir: str, log_path: str, model: str | None = None) -> subprocess.Popen:
+    log_file = open(log_path, "w")  # noqa: SIM115
     cmd = ["kiro-cli", "chat", "--no-interactive", "--trust-all-tools", "--agent", agent, "--wrap=never"]
     if model:
         cmd.extend(["--model", model])
     cmd.append(f"skip confirmation. {task}")
     return subprocess.Popen(
-        cmd, stdout=log_file, stderr=subprocess.STDOUT,
-        cwd=work_dir, preexec_fn=os.setsid,
+        cmd,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        cwd=work_dir,
+        preexec_fn=os.setsid,
     )
 
 
@@ -154,10 +156,10 @@ def _is_done(proc) -> bool:
 
 def _kill_proc(proc):
     if isinstance(proc, subprocess.Popen) and proc.poll() is None:
-        try:
+        import contextlib
+
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except ProcessLookupError:
-            pass
 
 
 def _update_status(job: dict):
@@ -188,10 +190,10 @@ def _open_ghostty_tab(command: str):
     """Open a new Ghostty tab via native AppleScript API. No keystrokes injected."""
     script = (
         'tell application "Ghostty"\n'
-        '  set cfg to new surface configuration\n'
+        "  set cfg to new surface configuration\n"
         f'  set command of cfg to "{command}"\n'
-        '  new tab in front window with configuration cfg\n'
-        'end tell'
+        "  new tab in front window with configuration cfg\n"
+        "end tell"
     )
     subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -201,9 +203,7 @@ def _open_dashboard(inv_dir: str, job_id: str):
     status_file = str(Path(inv_dir) / "status.json")
     # Write launcher in /tmp with short name to avoid keystroke character drops
     launcher = f"/tmp/kiro_dash_{job_id}.sh"
-    Path(launcher).write_text(
-        f'#!/bin/bash\nbash {DASHBOARD_SCRIPT} "{status_file}" "{job_id}" "{inv_dir}"\n'
-    )
+    Path(launcher).write_text(f'#!/bin/bash\nbash {DASHBOARD_SCRIPT} "{status_file}" "{job_id}" "{inv_dir}"\n')
     # Also keep a copy in inv_dir for reference
     Path(inv_dir, "dashboard.sh").write_text(Path(launcher).read_text())
     os.chmod(launcher, 0o755)
@@ -222,12 +222,19 @@ def _md_to_pdf(md_path: str, pdf_path: str) -> bool:
     try:
         subprocess.run(
             [
-                "npx", "--yes", "md-to-pdf", md_path,
-                "--highlight-style", "monokai",
-                "--css", "pre { background: #272822; padding: 1em; border-radius: 6px; } code { color: #f8f8f2; }",
-                "--pdf-options", '{"printBackground": true}',
+                "npx",
+                "--yes",
+                "md-to-pdf",
+                md_path,
+                "--highlight-style",
+                "monokai",
+                "--css",
+                "pre { background: #272822; padding: 1em; border-radius: 6px; } code { color: #f8f8f2; }",
+                "--pdf-options",
+                '{"printBackground": true}',
             ],
-            capture_output=True, timeout=120,
+            capture_output=True,
+            timeout=120,
         )
         # md-to-pdf outputs alongside the .md file
         default_pdf = md_path.rsplit(".", 1)[0] + ".pdf"
@@ -248,11 +255,12 @@ def _orchestrate(job_id: str):
     # Phase 1+2: Wait for investigators, spawn validators
     while True:
         import time
+
         time.sleep(POLL_INTERVAL)
         if job["phase"] == "stopped":
             return
 
-        for name, child in job["children"].items():
+        for _name, child in job["children"].items():
             if _is_done(child["proc"]) and not child.get("validator_proc"):
                 if Path(child["findings_path"]).exists():
                     val_task = VALIDATOR_TASK.format(
@@ -270,16 +278,17 @@ def _orchestrate(job_id: str):
 
             # Timeout: kill validators that take too long
             vp = child.get("validator_proc")
-            if isinstance(vp, subprocess.Popen) and not _is_done(vp):
-                if time.time() - child.get("validator_started", 0) > VALIDATOR_TIMEOUT:
-                    _kill_proc(vp)
-
+            if (
+                isinstance(vp, subprocess.Popen)
+                and not _is_done(vp)
+                and time.time() - child.get("validator_started", 0) > VALIDATOR_TIMEOUT
+            ):
+                _kill_proc(vp)
 
         _update_status(job)
 
         all_validated = all(
-            child.get("validator_proc") and _is_done(child["validator_proc"])
-            for child in job["children"].values()
+            child.get("validator_proc") and _is_done(child["validator_proc"]) for child in job["children"].values()
         )
         if all_validated:
             break
@@ -291,15 +300,20 @@ def _orchestrate(job_id: str):
     orch_nodes = str(Path(job["inv_dir"]) / "orchestrator_nodes")
     Path(orch_nodes).write_text(f"{time.strftime('%H:%M:%S')}|Reading findings\n")
     orch_task = ORCHESTRATOR_TASK.format(
-        inv_dir=job["inv_dir"], description=job["description"],
-        report_path=report_path, nodes_path=orch_nodes,
+        inv_dir=job["inv_dir"],
+        description=job["description"],
+        report_path=report_path,
+        nodes_path=orch_nodes,
     )
-    job["orchestrator_proc"] = _spawn_kiro(ORCHESTRATOR_AGENT, orch_task, job["work_dir"], orch_log, model=LARGE_CONTEXT_MODEL)
+    job["orchestrator_proc"] = _spawn_kiro(
+        ORCHESTRATOR_AGENT, orch_task, job["work_dir"], orch_log, model=LARGE_CONTEXT_MODEL
+    )
     job["report_path"] = report_path
     _update_status(job)
 
     while not _is_done(job["orchestrator_proc"]):
         import time
+
         time.sleep(POLL_INTERVAL)
         _update_status(job)
         if job["phase"] == "stopped":
@@ -312,15 +326,20 @@ def _orchestrate(job_id: str):
     visual_nodes = str(Path(job["inv_dir"]) / "visual_nodes")
     Path(visual_nodes).write_text(f"{time.strftime('%H:%M:%S')}|Reading report\n")
     visual_task = VISUAL_REPORT_TASK.format(
-        report_path=report_path, description=job["description"],
-        visual_report_path=visual_report_path, nodes_path=visual_nodes,
+        report_path=report_path,
+        description=job["description"],
+        visual_report_path=visual_report_path,
+        nodes_path=visual_nodes,
     )
-    job["visual_proc"] = _spawn_kiro(VISUAL_REPORT_AGENT, visual_task, job["work_dir"], visual_log, model=LARGE_CONTEXT_MODEL)
+    job["visual_proc"] = _spawn_kiro(
+        VISUAL_REPORT_AGENT, visual_task, job["work_dir"], visual_log, model=LARGE_CONTEXT_MODEL
+    )
     job["visual_report_path"] = visual_report_path
     _update_status(job)
 
     while not _is_done(job["visual_proc"]):
         import time
+
         time.sleep(POLL_INTERVAL)
         _update_status(job)
         if job["phase"] == "stopped":
@@ -337,6 +356,7 @@ def _orchestrate(job_id: str):
 
 
 # ── MCP Tools ──────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def profound_investigation(description: str, work_dir: str) -> str:
@@ -362,7 +382,9 @@ def profound_investigation(description: str, work_dir: str) -> str:
         nodes_path = str(Path(child_dir) / "nodes")
 
         task = task_tpl.format(
-            description=description, work_dir=work_dir, findings_path=findings_path,
+            description=description,
+            work_dir=work_dir,
+            findings_path=findings_path,
         ) + NODE_INSTRUCTION.format(nodes_path=nodes_path)
         # Write initial node so dashboard shows activity immediately
         Path(nodes_path).write_text(f"{time.strftime('%H:%M:%S')}|Starting up\n")
@@ -371,22 +393,30 @@ def profound_investigation(description: str, work_dir: str) -> str:
             time.sleep(SPAWN_DELAY)
         proc = _spawn_kiro(agent, task, work_dir, log_path)
         children[name] = {
-            "proc": proc, "child_dir": child_dir,
-            "findings_path": findings_path, "validated_path": validated_path,
-            "log_path": log_path, "validator_proc": None,
+            "proc": proc,
+            "child_dir": child_dir,
+            "findings_path": findings_path,
+            "validated_path": validated_path,
+            "log_path": log_path,
+            "validator_proc": None,
         }
 
     job = {
-        "job_id": job_id, "description": description, "work_dir": work_dir,
-        "inv_dir": inv_dir, "phase": "investigating", "children": children,
-        "orchestrator_proc": None, "report_path": None,
+        "job_id": job_id,
+        "description": description,
+        "work_dir": work_dir,
+        "inv_dir": inv_dir,
+        "phase": "investigating",
+        "children": children,
+        "orchestrator_proc": None,
+        "report_path": None,
     }
     _jobs[job_id] = job
     _update_status(job)
 
     # Open live dashboard in a new terminal
     _open_dashboard(inv_dir, job_id)
-    job["dashboard_opened"] = True
+    job["dashboard_opened"] = True  # type: ignore[assignment]
 
     thread = threading.Thread(target=_orchestrate, args=(job_id,), daemon=True)
     thread.start()
@@ -474,23 +504,23 @@ def _open_writer_progress(log_path: str, label: str, pid: int):
     """Open a Ghostty tab tailing the writer log for live progress."""
     launcher = f"/tmp/kiro_writer_{label}_{os.getpid()}.sh"
     Path(launcher).write_text(
-        f'#!/bin/bash\n'
-        f'printf \'\\e]2;✉️📝 Correspondence: {label}\\a\'\n'
-        f'printf \'\\033[1;35m\'\n'
+        f"#!/bin/bash\n"
+        f"printf '\\e]2;✉️📝 Correspondence: {label}\\a'\n"
+        f"printf '\\033[1;35m'\n"
         f'echo "╔══════════════════════════════════════════════════════════════╗"\n'
         f'printf "║  ✉️📝  Correspondence Writer — %-30s  ║\\n" "{label}"\n'
         f'echo "╚══════════════════════════════════════════════════════════════╝"\n'
-        f'printf \'\\033[0m\'\n'
+        f"printf '\\033[0m'\n"
         f'echo ""\n'
         f'touch "{log_path}"\n'
         f'tail -f "{log_path}" &\n'
-        f'TAIL_PID=$!\n'
-        f'while kill -0 {pid} 2>/dev/null; do sleep 2; done\n'
-        f'sleep 2\n'
-        f'kill $TAIL_PID 2>/dev/null\n'
+        f"TAIL_PID=$!\n"
+        f"while kill -0 {pid} 2>/dev/null; do sleep 2; done\n"
+        f"sleep 2\n"
+        f"kill $TAIL_PID 2>/dev/null\n"
         f'echo ""\n'
-        f'printf \'\\033[1;35m━━━ ✅ Correspondence complete ━━━\\033[0m\\n\'\n'
-        f'sleep 3\n'
+        f"printf '\\033[1;35m━━━ ✅ Correspondence complete ━━━\\033[0m\\n'\n"
+        f"sleep 3\n"
         f'TAB_TITLE="✉️📝 Correspondence: {label}"\n'
         f'osascript -e "tell application \\"Ghostty\\"" '
         f'-e "repeat with w in windows" '
@@ -508,6 +538,7 @@ def _monitor_correspondence(job_id: str):
     """Background thread: wait for writer processes to finish, collect results."""
     job = _jobs[job_id]
     import time
+
     while True:
         time.sleep(5)
         if job["phase"] == "stopped":
@@ -542,7 +573,7 @@ def write_correspondence(
 
     if tab_id:
         tab_instruction = (
-            f"FIRST: Use read_tab_content with id=\"{tab_id}\" to read the customer's case tab. "
+            f'FIRST: Use read_tab_content with id="{tab_id}" to read the customer\'s case tab. '
             f"The content may be truncated — if so, call read_tab_content again with increasing startIndex "
             f"until you have the full case context. "
             f"Use the content to understand their questions, context, and what needs to be addressed.\n\n"
@@ -574,15 +605,18 @@ def write_correspondence(
         writers.append({"label": label, "proc": proc, "out_path": out_path, "log_path": log_path})
 
     job = {
-        "job_id": job_id, "phase": "writing", "writers": writers,
-        "work_dir": work_dir, "out_dir": out_dir,
+        "job_id": job_id,
+        "phase": "writing",
+        "writers": writers,
+        "work_dir": work_dir,
+        "out_dir": out_dir,
     }
     _jobs[job_id] = job
 
     thread = threading.Thread(target=_monitor_correspondence, args=(job_id,), daemon=True)
     thread.start()
 
-    labels = ", ".join(l for l, _ in versions)
+    labels = ", ".join(label for label, _ in versions)
     return (
         f"✉️ Correspondence {job_id} started!\n"
         f"📂 Output: {out_dir}\n"
@@ -630,13 +664,18 @@ def generate_report(raw_findings: str, report_type: str = "investigation", case_
     task = f"Generate a {report_type} report from:\n\n{raw_findings}\n\nWrite to: {out_path}"
     proc = _spawn_kiro(CHILD_AGENT, task, work_dir, log_path)
 
-    job = {"job_id": job_id, "phase": "writing", "writers": [
-        {"label": report_type, "proc": proc, "out_path": out_path, "log_path": log_path}
-    ], "work_dir": work_dir, "out_dir": out_dir}
+    job = {
+        "job_id": job_id,
+        "phase": "writing",
+        "writers": [{"label": report_type, "proc": proc, "out_path": out_path, "log_path": log_path}],
+        "work_dir": work_dir,
+        "out_dir": out_dir,
+    }
     _jobs[job_id] = job
 
     def _monitor():
         import time
+
         while proc.poll() is None:
             time.sleep(5)
         job["phase"] = "complete"
