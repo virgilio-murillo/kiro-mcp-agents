@@ -8,5 +8,16 @@
     "knowledge", "web_fetch", "web_search",
     "@aws-docs/*", "execute_bash", "use_aws",
     "@builder-mcp/*"
-  ]
+  ],
+  "expose_as_tool": {
+    "name": "write_correspondence",
+    "description": "Generate professional customer correspondence from investigation findings. Launches a correspondence-writer agent.",
+    "parameters": {
+      "findings": { "type": "string", "required": true, "description": "Technical findings and root cause analysis" },
+      "customer_context": { "type": "string", "required": false, "description": "What the customer reported" },
+      "case_id": { "type": "string", "required": false, "description": "Case ID for reference" },
+      "first_correspondence": { "type": "boolean", "required": false, "description": "True=introduce yourself, False=follow-up. Default: true" }
+    },
+    "task_template": "{correspondence_type}\n\n## Customer Context\n{customer_context}\n\n## Technical Findings\n{findings}\n\nWrite the correspondence to: {work_dir}/correspondence/correspondence_{case_id}.md"
+  }
 }

@@ -7,5 +7,15 @@
     "code", "read", "write", "glob", "grep", "thinking",
     "knowledge", "web_fetch", "web_search",
     "@aws-docs/*", "execute_bash", "use_aws"
-  ]
+  ],
+  "expose_as_tool": {
+    "name": "create_report",
+    "description": "Generate a structured report from raw findings. Launches a report-creator agent.",
+    "parameters": {
+      "raw_findings": { "type": "string", "required": true, "description": "Raw investigation findings to structure into a report" },
+      "report_type": { "type": "string", "required": false, "description": "Report type: investigation, bug_reproduction, or executive_summary. Default: investigation" },
+      "case_id": { "type": "string", "required": false, "description": "Case ID for the report filename" }
+    },
+    "task_template": "Generate a {report_type} report from:\n\n{raw_findings}\n\nWrite to: {work_dir}/reports/{report_type}_{case_id}.md"
+  }
 }
