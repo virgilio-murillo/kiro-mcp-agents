@@ -1,35 +1,35 @@
 # kiro-mcp-agents
 
-MCP server that orchestrates parallel investigations with a live [Ghostty](https://ghostty.org/) terminal dashboard. macOS only.
-
-Part of the [kiro-mcp-servers](https://github.com/virgilio-murillo/kiro-mcp-servers) collection.
+General-purpose agent launcher MCP server for [Kiro CLI](https://github.com/virgilio-murillo/kiro-config).
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
-| `profound_investigation` | Launch parallel investigation with 8 child agents + orchestrator |
-| `investigation_status` | Check progress of a running investigation |
-| `investigation_result` | Get the final report from a completed investigation |
-| `investigation_feed` | Feed CLI output or findings into a running investigation |
-| `stop_investigation` | Stop all processes in an investigation |
-| `write_correspondence` | Generate professional customer correspondence |
-| `generate_report` | Generate structured report from raw findings |
+| `launch_agent(agent, task, work_dir, model?)` | Spawn a kiro-cli agent, returns job_id |
+| `agent_status(job_id)` | Check if agent is done, get output preview |
+| `agent_result(job_id)` | Get full agent output |
+| `stop_agent(job_id)` | Kill a running agent |
 
-## Requirements
+## Pre-configured Agents
 
-- Python 3.10+
-- macOS (Ghostty + AppleScript integration)
-- `mcp[cli]>=1.0.0`
+Agent definitions in `agents/` — copy to `~/.kiro/agents/`:
 
-## Install
+- **correspondence-writer** — writes professional AWS customer correspondence
+- **report-creator** — generates structured reports from raw findings
 
-```bash
-pip install -e .
+## Python API
+
+Other MCP servers can import the core module:
+
+```python
+from core import spawn_kiro, launch, get_status, get_result, stop, _jobs
 ```
 
-## Usage
+## Setup
 
 ```bash
-kiro-agents
+cd ~/.kiro/mcp-servers/kiro-agents
+python -m venv .venv
+.venv/bin/pip install -e .
 ```
