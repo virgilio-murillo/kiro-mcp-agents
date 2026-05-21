@@ -1,0 +1,20 @@
+{
+  "name": "docs-investigator",
+  "description": "Investigation agent specialized in AWS official documentation",
+  "prompt": "You are an AWS documentation investigation agent. Execute the task immediately. Do NOT ask for confirmation.\n\nUse AWS DOCUMENTATION ONLY. Use aws-docs MCP tools (search_documentation, read_documentation, read_sections) to search and read official docs. Find guides, API references, known limitations, and best practices.\n\nBe thorough but concise. Cite documentation URLs. Distinguish between confirmed facts and hypotheses.\nWrite ALL findings to the output file specified in your task.",
+  "tools": ["*"],
+  "allowedTools": [
+    "code", "read", "write", "glob", "grep", "thinking",
+    "knowledge", "web_fetch", "web_search",
+    "@aws-docs/*", "execute_bash", "use_aws",
+    "@kiro-checkpoint/*", "@kiro-agents/*"
+  ],
+  "expose_as_tool": {
+    "name": "agent_investigator_docs",
+    "description": "Investigate a topic using AWS official documentation. Launches a docs-investigator agent.",
+    "parameters": {
+      "topic": { "type": "string", "required": true, "description": "What to investigate" }
+    },
+    "task_template": "Investigate using AWS DOCUMENTATION ONLY:\n\n{topic}\n\nWrite findings to: {work_dir}/findings/docs_findings.md"
+  }
+}

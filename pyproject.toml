@@ -2,8 +2,8 @@
 name = "kiro-agents"
 version = "0.2.0"
 description = "General-purpose agent launcher MCP server for Kiro CLI"
-requires-python = ">=3.11"
-dependencies = ["mcp[cli]>=1.0.0"]
+requires-python = ">=3.12,<3.13"
+dependencies = ["mcp[cli]==1.27.0"]
 
 [project.scripts]
 kiro-agents = "server:main"

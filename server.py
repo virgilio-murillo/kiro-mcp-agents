@@ -1,13 +1,16 @@
-"""Kiro Agents MCP server — launch and manage kiro-cli agents."""
+"""Kiro Agents MCP server — fully async, zero threads, non-blocking."""
 
+import asyncio
 import json
 import os
+import time
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
-from core import _jobs, launch, get_status, get_result, stop
+from core import _jobs, launch, get_status, get_result, stop, _dbg
 
 mcp = FastMCP("kiro-agents")
+_dbg("server.py loaded — kiro-agents MCP server starting (async rewrite)")
 
 AGENTS_DIRS = [
     Path(__file__).parent / "agents",
@@ -18,7 +21,7 @@ AGENTS_DIRS = [
 # ── Core tools ──
 
 @mcp.tool()
-def launch_agent(agent: str, task: str, work_dir: str, model: str = None) -> str:
+async def launch_agent(agent: str, task: str, work_dir: str, model: str = None) -> str:
     """Launch a kiro-cli agent process. Returns immediately with a job_id.
 
     Args:
@@ -27,8 +30,12 @@ def launch_agent(agent: str, task: str, work_dir: str, model: str = None) -> str
         work_dir: Working directory for the agent
         model: Optional model override (e.g. 'claude-sonnet-4.6-1m')
     """
-    job_id = launch(agent, task, work_dir, model)
+    _dbg(f"launch_agent: agent={agent} work_dir={work_dir}")
+    t0 = time.monotonic()
+    job_id = await launch(agent, task, work_dir, model)
     job = _jobs[job_id]
+    elapsed = time.monotonic() - t0
+    _dbg(f"launch_agent: done in {elapsed*1000:.1f}ms, job_id={job_id}")
     return (
         f"🚀 Agent '{agent}' launched as job {job_id}\n"
         f"📂 Logs: {job['log_path']}\n\n"
@@ -38,13 +45,17 @@ def launch_agent(agent: str, task: str, work_dir: str, model: str = None) -> str
 
 
 @mcp.tool()
-def agent_status(job_id: str) -> str:
+async def agent_status(job_id: str) -> str:
     """Check the status of a launched agent.
 
     Args:
         job_id: Job ID returned by launch_agent
     """
-    status = get_status(job_id)
+    _dbg(f"agent_status: job_id={job_id}")
+    t0 = time.monotonic()
+    status = await get_status(job_id)
+    elapsed = time.monotonic() - t0
+    _dbg(f"agent_status: completed in {elapsed*1000:.1f}ms")
     if not status:
         candidates = list(_jobs.keys())
         return f"Unknown job_id '{job_id}'. Active jobs: {candidates or 'none'}"
@@ -57,28 +68,65 @@ def agent_status(job_id: str) -> str:
 
 
 @mcp.tool()
-def agent_result(job_id: str) -> str:
+async def agent_result(job_id: str) -> str:
     """Get the full output of a completed agent.
 
     Args:
         job_id: Job ID returned by launch_agent
     """
-    result = get_result(job_id)
+    _dbg(f"agent_result: job_id={job_id}")
+    t0 = time.monotonic()
+    result = await get_result(job_id)
+    elapsed = time.monotonic() - t0
+    _dbg(f"agent_result: completed in {elapsed*1000:.1f}ms")
     if result is None:
         return f"Unknown job_id '{job_id}'."
-    status = get_status(job_id)
-    phase = status["phase"] if status else "unknown"
-    return f"Agent {job_id} — {phase}\n\n{result}"
+    job = _jobs.get(job_id, {})
+    phase = job.get("phase", "unknown")
+
+    # Write full result to file to avoid pipe backpressure deadlock.
+    # Return file path + preview so the caller can read the file.
+    PIPE_SAFE_LIMIT = 12000  # chars safe for pipe (well under 65KB JSON-RPC)
+    full_response = f"Agent {job_id} — {phase}\n\n{result}"
+
+    if len(full_response) <= PIPE_SAFE_LIMIT:
+        return full_response
+
+    # Large result: write to file, return pointer + preview
+    out_dir = job.get("out_dir", "")
+    result_file = str(Path(out_dir) / "result.md") if out_dir else f"/tmp/kiro-agent-result-{job_id}.md"
+    Path(result_file).write_text(full_response)
+    _dbg(f"agent_result: large output ({len(full_response)} chars) written to {result_file}")
+
+    # Build preview: first and last lines
+    lines = result.splitlines()
+    preview_head = "\n".join(lines[:15])
+    preview_tail = "\n".join(lines[-15:]) if len(lines) > 30 else ""
+    preview = preview_head
+    if preview_tail:
+        preview += f"\n\n[... {len(lines) - 30} lines omitted ...]\n\n{preview_tail}"
+
+    return (
+        f"Agent {job_id} — {phase}\n"
+        f"📄 Full output ({len(full_response)} chars) written to: {result_file}\n"
+        f"⚡ Use the `read` tool to get the full content from that file.\n\n"
+        f"--- PREVIEW ---\n{preview[:3000]}"
+    )
 
 
 @mcp.tool()
-def stop_agent(job_id: str) -> str:
+async def stop_agent(job_id: str) -> str:
     """Stop a running agent.
 
     Args:
         job_id: Job ID returned by launch_agent
     """
-    if stop(job_id):
+    _dbg(f"stop_agent: job_id={job_id}")
+    t0 = time.monotonic()
+    ok = await stop(job_id)
+    elapsed = time.monotonic() - t0
+    _dbg(f"stop_agent: completed in {elapsed*1000:.1f}ms ok={ok}")
+    if ok:
         return f"Agent {job_id} stopped."
     return f"Unknown job_id '{job_id}'."
 
@@ -107,14 +155,13 @@ def _register_agent_tools():
 
 
 def _make_agent_tool(cfg: dict, spec: dict):
-    """Create and register a single agent-as-tool with proper typed signature."""
+    """Create and register a single agent-as-tool."""
     tool_name = spec["name"]
     agent_name = cfg["name"]
     description = spec.get("description", f"Launch {agent_name} agent")
     params = spec.get("parameters", {})
     task_template = spec.get("task_template", "{task}")
 
-    # Build function signature dynamically so FastMCP infers the schema
     param_names = list(params.keys()) + ["work_dir"]
     annotations = {"work_dir": str, "return": str}
     defaults = {}
@@ -128,14 +175,12 @@ def _make_agent_tool(cfg: dict, spec: dict):
             if not pinfo.get("required"):
                 defaults[pname] = ""
 
-    # Build docstring with Args
     doc_lines = [description, "", "    Args:"]
     for pname, pinfo in params.items():
         req = " (required)" if pinfo.get("required") else ""
         doc_lines.append(f"        {pname}: {pinfo.get('description', '')}{req}")
     doc_lines.append("        work_dir: Working directory for the agent (required)")
 
-    # Use exec to create a function with the exact signature FastMCP needs
     sig_parts = []
     for pname in params:
         if pname in defaults:
@@ -146,7 +191,7 @@ def _make_agent_tool(cfg: dict, spec: dict):
     sig = ", ".join(sig_parts)
 
     func_code = f"""
-def {tool_name}({sig}) -> str:
+async def {tool_name}({sig}) -> str:
     '''{chr(10).join(doc_lines)}'''
     import os
     work_dir_resolved = work_dir or os.getcwd()
@@ -164,7 +209,7 @@ def {tool_name}({sig}) -> str:
     if "report_type" in tpl_vars and not tpl_vars["report_type"]:
         tpl_vars["report_type"] = "investigation"
     task = task_tpl_ref.format(**tpl_vars)
-    job_id = launch_ref(agent_name_ref, task, work_dir_resolved)
+    job_id = await launch_ref(agent_name_ref, task, work_dir_resolved)
     job = jobs_ref[job_id]
     return (
         f"🚀 {{agent_name_ref}} launched as job {{job_id}}\\n"

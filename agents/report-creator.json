@@ -9,7 +9,7 @@
     "@aws-docs/*", "execute_bash", "use_aws"
   ],
   "expose_as_tool": {
-    "name": "create_report",
+    "name": "agent_report_creator",
     "description": "Generate a structured report from raw findings. Launches a report-creator agent.",
     "parameters": {
       "raw_findings": { "type": "string", "required": true, "description": "Raw investigation findings to structure into a report" },

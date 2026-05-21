@@ -10,7 +10,7 @@
     "@builder-mcp/*"
   ],
   "expose_as_tool": {
-    "name": "write_correspondence",
+    "name": "agent_correspondence_writer",
     "description": "Generate professional customer correspondence from investigation findings. Launches a correspondence-writer agent.",
     "parameters": {
       "findings": { "type": "string", "required": true, "description": "Technical findings and root cause analysis" },
